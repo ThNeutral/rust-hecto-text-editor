@@ -6,6 +6,9 @@ use crossterm::event::{
 
 use crate::terminal::{Position, Terminal};
 
+const NAME: &str = env!("CARGO_PKG_NAME");
+const VERSION: &str = env!("CARGO_PKG_VERSION");
+
 pub struct Editor {
     should_quit: bool,
 }
@@ -16,23 +19,59 @@ impl Editor {
     }
 
     pub fn run(&mut self) {
-        Terminal::initialize().expect("Failed to initialize editor");
-
-        Self::draw_rows().unwrap();
-        Terminal::move_cursor_to(Position { x: 0, y: 0 }).unwrap();
+        Self::initialize().expect("Failed to initialize editor");
 
         let result = self.repl();
         Terminal::terminate().expect("Failed to terminate editor");
         result.expect("REPL error")
     }
 
+    fn initialize() -> Result<(), std::io::Error> {
+        Terminal::initialize()?;
+
+        Self::draw_rows()?;
+        Terminal::move_cursor_to(Position { x: 0, y: 0 })?;
+
+        Ok(())
+    }
+
     fn draw_rows() -> Result<(), std::io::Error> {
         let size = Terminal::size()?;
-        for i in 0..(size.height - 1) {
+        for i in 0..size.height {
             Terminal::move_cursor_to(Position { x: 0, y: i })?;
             Terminal::clear_line()?;
-            Terminal::print("~")?;
+
+            if i == size.height / 2 {
+                Self::draw_welcome_message_line()?;
+                continue;
+            }
+
+            Self::draw_empty_line()?;
         }
+
+        Ok(())
+    }
+
+    fn draw_welcome_message_line() -> Result<(), std::io::Error> {
+        let welcome_message = format!("{} editor -- version {}", NAME, VERSION);
+
+        let message_size = welcome_message.chars().count() as u16;
+        let terminal_size = Terminal::size()?.width;
+
+        if terminal_size < message_size {
+            return Ok(());
+        }
+
+        let padding = " ".repeat((terminal_size - message_size) as usize / 2);
+        let welcome_line = format!("~{}{}", padding, welcome_message);
+
+        Terminal::print(welcome_line)?;
+
+        Ok(())
+    }
+
+    fn draw_empty_line() -> Result<(), std::io::Error> {
+        Terminal::print("~")?;
 
         Ok(())
     }
