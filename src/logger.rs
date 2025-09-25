@@ -5,7 +5,7 @@ use std::sync::Mutex;
 
 static LOGGER: Mutex<Option<File>> = Mutex::new(None);
 
-pub fn initialize_logger() -> io::Result<()> {
+pub fn initialize_logger() -> Result<(), io::Error> {
     let file = File::options().create(true).write(true).open("logs.txt");
 
     match file {
