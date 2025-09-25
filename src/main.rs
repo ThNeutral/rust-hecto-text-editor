@@ -7,5 +7,5 @@ use crate::logger::initialize_logger;
 fn main() {
     initialize_logger().expect("Failed to initialize logger");
 
-    Editor::default().run();
+    Editor::new().unwrap().repl().unwrap();
 }

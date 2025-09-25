@@ -3,7 +3,11 @@ use crossterm::event::{
     Event::{self, Key},
     KeyCode, KeyEvent, KeyEventKind, KeyModifiers, read,
 };
-use std::{env, io::Error, process};
+use std::{
+    env,
+    io::Error,
+    panic::{set_hook, take_hook},
+};
 
 mod terminal;
 mod view;
@@ -17,42 +21,54 @@ struct Location {
     y: usize,
 }
 
-#[derive(Default)]
 pub struct Editor {
     should_quit: bool,
     location: Location,
     view: View,
 }
 
-impl Editor {
-    pub fn run(&mut self) {
-        self.handle_args();
-        Terminal::initialize().unwrap();
-        self.view.resize(Terminal::size().unwrap());
-
-        let result = self.repl();
-
-        Terminal::terminate().unwrap();
-        result.unwrap();
-    }
-
-    fn handle_args(&mut self) {
-        let args: Vec<String> = env::args().collect();
-        if let Some(file_name) = args.get(1) {
-            self.view.load(file_name).unwrap_or_else(|err| {
-                eprintln!("Failed to open specified file: {}", err);
-                process::exit(1);
-            });
+impl Drop for Editor {
+    fn drop(&mut self) {
+        let _ = Terminal::terminate();
+        if self.should_quit {
+            let _ = Terminal::clear_screen();
+            let _ = Terminal::print("Goodbye!\r\n");
         }
     }
+}
 
-    fn repl(&mut self) -> Result<(), Error> {
+impl Editor {
+    pub fn new() -> Result<Self, Error> {
+        let current_hook = take_hook();
+        set_hook(Box::new(move |panic_info| {
+            let _ = Terminal::terminate();
+            current_hook(panic_info);
+        }));
+
+        Terminal::initialize()?;
+
+        let size = Terminal::size()?;
+        let mut view = View::from_size(size);
+
+        let args: Vec<String> = env::args().collect();
+        if let Some(file_name) = args.get(1) {
+            view.load(file_name)?;
+        }
+
+        Ok(Self {
+            should_quit: false,
+            location: Location::default(),
+            view,
+        })
+    }
+
+    pub fn repl(&mut self) -> Result<(), Error> {
         loop {
             self.refresh_screen()?;
             if self.should_quit {
                 break;
             }
-            let event = read()?;
+            let event = read().unwrap_or_else(|err| panic!("Failed to read event: {}", err));
             self.evaluate_event(event)?;
         }
         Ok(())
@@ -126,16 +142,12 @@ impl Editor {
     fn refresh_screen(&mut self) -> Result<(), Error> {
         Terminal::hide_caret()?;
         Terminal::move_caret_to(Position::default())?;
-        if self.should_quit {
-            Terminal::clear_screen()?;
-            Terminal::print("Goodbye.\r\n")?;
-        } else {
-            self.view.render()?;
-            Terminal::move_caret_to(Position {
-                col: self.location.x,
-                row: self.location.y,
-            })?;
-        }
+
+        self.view.render()?;
+        Terminal::move_caret_to(Position {
+            col: self.location.x,
+            row: self.location.y,
+        })?;
 
         Terminal::show_caret()?;
         Terminal::execute()?;

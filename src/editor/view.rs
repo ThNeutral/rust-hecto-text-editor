@@ -1,17 +1,13 @@
 mod buffer;
 
-use crate::{
-    editor::{
-        terminal::{Position, Size, Terminal},
-        view::buffer::Buffer,
-    },
-    logger::log,
+use crate::editor::{
+    terminal::{Position, Size, Terminal},
+    view::buffer::Buffer,
 };
 
 const NAME: &str = env!("CARGO_PKG_NAME");
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 
-#[derive(Default)]
 pub struct View {
     buffer: Buffer,
     needs_redraw: bool,
@@ -19,6 +15,14 @@ pub struct View {
 }
 
 impl View {
+    pub fn from_size(size: Size) -> View {
+        View {
+            buffer: Buffer::default(),
+            needs_redraw: true,
+            size: size,
+        }
+    }
+
     pub fn resize(&mut self, new_size: Size) {
         self.size = new_size;
         self.needs_redraw = true;
