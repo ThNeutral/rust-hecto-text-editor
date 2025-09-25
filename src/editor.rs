@@ -3,9 +3,8 @@ use crossterm::event::{
     Event::{self, Key},
     KeyCode, KeyEvent, KeyEventKind, KeyModifiers, read,
 };
-use std::io::Error;
+use std::{env, io::Error, process};
 
-mod buffer;
 mod terminal;
 mod view;
 use terminal::{Position, Size, Terminal};
@@ -27,10 +26,24 @@ pub struct Editor {
 
 impl Editor {
     pub fn run(&mut self) {
+        self.handle_args();
         Terminal::initialize().unwrap();
+        self.view.resize(Terminal::size().unwrap());
+
         let result = self.repl();
+
         Terminal::terminate().unwrap();
         result.unwrap();
+    }
+
+    fn handle_args(&mut self) {
+        let args: Vec<String> = env::args().collect();
+        if let Some(file_name) = args.get(1) {
+            self.view.load(file_name).unwrap_or_else(|err| {
+                eprintln!("Failed to open specified file: {}", err);
+                process::exit(1);
+            });
+        }
     }
 
     fn repl(&mut self) -> Result<(), Error> {
@@ -40,7 +53,7 @@ impl Editor {
                 break;
             }
             let event = read()?;
-            self.evaluate_event(&event)?;
+            self.evaluate_event(event)?;
         }
         Ok(())
     }
@@ -77,16 +90,15 @@ impl Editor {
         self.location = Location { x, y };
         Ok(())
     }
-    fn evaluate_event(&mut self, event: &Event) -> Result<(), Error> {
-        if let Key(KeyEvent {
-            code,
-            modifiers,
-            kind: KeyEventKind::Press,
-            ..
-        }) = event
-        {
-            match code {
-                KeyCode::Char('q') if *modifiers == KeyModifiers::CONTROL => {
+    fn evaluate_event(&mut self, event: Event) -> Result<(), Error> {
+        match event {
+            Key(KeyEvent {
+                code,
+                modifiers,
+                kind: KeyEventKind::Press,
+                ..
+            }) => match code {
+                KeyCode::Char('q') if modifiers == KeyModifiers::CONTROL => {
                     self.should_quit = true;
                 }
                 KeyCode::Up
@@ -97,14 +109,21 @@ impl Editor {
                 | KeyCode::PageUp
                 | KeyCode::End
                 | KeyCode::Home => {
-                    self.move_point(*code)?;
+                    self.move_point(code)?;
                 }
                 _ => (),
+            },
+            Event::Resize(width, height) => {
+                self.view.resize(Size {
+                    height: height as usize,
+                    width: width as usize,
+                });
             }
+            _ => (),
         }
         Ok(())
     }
-    fn refresh_screen(&self) -> Result<(), Error> {
+    fn refresh_screen(&mut self) -> Result<(), Error> {
         Terminal::hide_caret()?;
         Terminal::move_caret_to(Position::default())?;
         if self.should_quit {

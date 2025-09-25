@@ -1,6 +1,11 @@
-use crate::editor::{
-    buffer::Buffer,
-    terminal::{Size, Terminal},
+mod buffer;
+
+use crate::{
+    editor::{
+        terminal::{Position, Size, Terminal},
+        view::buffer::Buffer,
+    },
+    logger::log,
 };
 
 const NAME: &str = env!("CARGO_PKG_NAME");
@@ -9,47 +14,80 @@ const VERSION: &str = env!("CARGO_PKG_VERSION");
 #[derive(Default)]
 pub struct View {
     buffer: Buffer,
+    needs_redraw: bool,
+    size: Size,
 }
 
 impl View {
-    pub fn render(&self) -> Result<(), std::io::Error> {
-        self.draw_rows()
+    pub fn resize(&mut self, new_size: Size) {
+        self.size = new_size;
+        self.needs_redraw = true;
     }
 
-    fn draw_rows(&self) -> Result<(), std::io::Error> {
-        let Size { height, .. } = Terminal::size()?;
-        for current_row in 0..height {
-            Terminal::clear_line()?;
-            let line = self.buffer.get_line(current_row);
-            if let Some(line_text) = line {
-                Terminal::print(line_text)?;
-            } else if current_row == height / 3 {
-                Self::draw_welcome_message()?;
-            } else {
-                Self::draw_empty_row()?;
+    pub fn load(&mut self, file_name: &str) -> Result<(), std::io::Error> {
+        let new_buffer = Buffer::load_file(file_name);
+        match new_buffer {
+            Ok(buffer) => {
+                self.buffer = buffer;
+                self.needs_redraw = true;
+                Ok(())
             }
-            if current_row.saturating_add(1) < height {
-                Terminal::print("\r\n")?;
+            Err(err) => Err(err),
+        }
+    }
+
+    pub fn render(&mut self) -> Result<(), std::io::Error> {
+        if !self.needs_redraw {
+            return Ok(());
+        }
+        let Size { height, width } = self.size;
+        if height == 0 || width == 0 {
+            return Ok(());
+        }
+
+        let vertical_center = height / 3;
+        for row in 0..height {
+            if let Some(line) = self.buffer.get_line(row) {
+                let truncated_line = if line.len() >= width {
+                    &line[0..width]
+                } else {
+                    line
+                };
+                Self::render_line(row, truncated_line)?;
+            } else if row == vertical_center && self.buffer.is_empty() {
+                Self::render_line(row, &Self::build_welcome_message(width))?;
+            } else {
+                Self::render_line(row, "~")?;
             }
         }
+
+        self.needs_redraw = false;
         Ok(())
     }
 
-    fn draw_welcome_message() -> Result<(), std::io::Error> {
-        let mut welcome_message = format!("{NAME} editor -- version {VERSION}");
-        let width = Terminal::size()?.width;
+    fn build_welcome_message(width: usize) -> String {
+        if width == 0 {
+            return String::from(" ");
+        }
+
+        let welcome_message = format!("{NAME} editor -- version {VERSION}");
         let len = welcome_message.len();
-        let padding = (width.saturating_sub(len)) / 2;
+        if width <= len {
+            return String::from("~");
+        }
+
+        let padding = (width.saturating_sub(len).saturating_add(1)) / 2;
 
         let spaces = " ".repeat(padding.saturating_sub(1));
-        welcome_message = format!("~{spaces}{welcome_message}");
-        welcome_message.truncate(width);
-        Terminal::print(welcome_message)?;
-        Ok(())
+        let mut full_message = format!("~{spaces}{welcome_message}");
+        full_message.truncate(width);
+        full_message
     }
 
-    fn draw_empty_row() -> Result<(), std::io::Error> {
-        Terminal::print("~")?;
+    fn render_line(at: usize, line: &str) -> Result<(), std::io::Error> {
+        Terminal::move_caret_to(Position { row: at, col: 0 })?;
+        Terminal::clear_line()?;
+        Terminal::print(line)?;
         Ok(())
     }
 }
