@@ -1,38 +1,28 @@
-use core::cmp::min;
 use crossterm::event::{
-    Event::{self, Key},
-    KeyCode, KeyEvent, KeyEventKind, KeyModifiers, read,
+    Event::{self},
+    KeyEvent, KeyEventKind, read,
 };
 use std::{
     env,
-    io::Error,
+    io::{Error, ErrorKind},
     panic::{set_hook, take_hook},
 };
 
+mod editorcommand;
 mod terminal;
 mod view;
-use terminal::{Position, Size, Terminal};
+use terminal::{Position, Terminal};
 
-use crate::editor::view::View;
-
-#[derive(Copy, Clone, Default)]
-struct Location {
-    x: usize,
-    y: usize,
-}
+use crate::editor::{editorcommand::EditorCommand, view::View};
 
 pub struct Editor {
     should_quit: bool,
-    location: Location,
     view: View,
 }
 
 impl Drop for Editor {
     fn drop(&mut self) {
-        let _ = Terminal::terminate();
-        if self.should_quit {
-            let _ = Terminal::print("Goodbye!\r\n");
-        }
+        unimplemented!();
     }
 }
 
@@ -56,7 +46,6 @@ impl Editor {
 
         Ok(Self {
             should_quit: false,
-            location: Location::default(),
             view,
         })
     }
@@ -72,81 +61,38 @@ impl Editor {
         }
         Ok(())
     }
-    fn move_point(&mut self, key_code: KeyCode) -> Result<(), Error> {
-        let Location { mut x, mut y } = self.location;
-        let Size { height, width } = Terminal::size()?;
-        match key_code {
-            KeyCode::Up => {
-                y = y.saturating_sub(1);
-            }
-            KeyCode::Down => {
-                y = min(height.saturating_sub(1), y.saturating_add(1));
-            }
-            KeyCode::Left => {
-                x = x.saturating_sub(1);
-            }
-            KeyCode::Right => {
-                x = min(width.saturating_sub(1), x.saturating_add(1));
-            }
-            KeyCode::PageUp => {
-                y = 0;
-            }
-            KeyCode::PageDown => {
-                y = height.saturating_sub(1);
-            }
-            KeyCode::Home => {
-                x = 0;
-            }
-            KeyCode::End => {
-                x = width.saturating_sub(1);
-            }
-            _ => (),
-        }
-        self.location = Location { x, y };
-        Ok(())
-    }
+
     fn evaluate_event(&mut self, event: Event) -> Result<(), Error> {
-        match event {
-            Key(KeyEvent {
-                code,
-                modifiers,
+        let should_evaluate = match &event {
+            Event::Key(KeyEvent {
                 kind: KeyEventKind::Press,
                 ..
-            }) => match code {
-                KeyCode::Char('q') if modifiers == KeyModifiers::CONTROL => {
-                    self.should_quit = true;
-                }
-                KeyCode::Up
-                | KeyCode::Down
-                | KeyCode::Left
-                | KeyCode::Right
-                | KeyCode::PageDown
-                | KeyCode::PageUp
-                | KeyCode::End
-                | KeyCode::Home => {
-                    self.move_point(code)?;
-                }
-                _ => (),
-            },
-            Event::Resize(width, height) => {
-                self.view.resize(Size {
-                    height: height as usize,
-                    width: width as usize,
-                });
-            }
-            _ => (),
+            }) => true,
+            Event::Resize(_, _) => true,
+            _ => false,
+        };
+
+        if !should_evaluate {
+            return Ok(());
         }
-        Ok(())
+
+        match EditorCommand::try_from(event) {
+            Ok(command) => match command {
+                EditorCommand::Quit => {
+                    self.should_quit = true;
+                    Ok(())
+                }
+                _ => self.view.evaluate_event(command),
+            },
+            Err(err) => Err(std::io::Error::new(ErrorKind::Other, err)),
+        }
     }
     fn refresh_screen(&mut self) -> Result<(), Error> {
         Terminal::hide_caret()?;
         Terminal::move_caret_to(Position::default())?;
 
         self.view.render()?;
-        Terminal::move_caret_to(Position {
-            col: self.location.x,
-            row: self.location.y,
-        })?;
+        Terminal::move_caret_to(self.view.get_caret_position())?;
 
         Terminal::show_caret()?;
         Terminal::execute()?;

@@ -15,8 +15,8 @@ pub struct Size {
 }
 #[derive(Copy, Clone, Default)]
 pub struct Position {
-    pub col: usize,
-    pub row: usize,
+    pub x: usize,
+    pub y: usize,
 }
 pub struct Terminal;
 
@@ -44,7 +44,7 @@ impl Terminal {
         Ok(())
     }
     pub fn move_caret_to(position: Position) -> Result<(), Error> {
-        Self::queue_command(MoveTo(position.col as u16, position.row as u16))?;
+        Self::queue_command(MoveTo(position.x as u16, position.y as u16))?;
         Ok(())
     }
     pub fn hide_caret() -> Result<(), Error> {

@@ -1,6 +1,9 @@
 mod buffer;
 
+use std::cmp;
+
 use crate::editor::{
+    editorcommand::{Direction, EditorCommand},
     terminal::{Position, Size, Terminal},
     view::buffer::Buffer,
 };
@@ -12,6 +15,8 @@ pub struct View {
     buffer: Buffer,
     needs_redraw: bool,
     size: Size,
+    caret_position: Position,
+    screen_offset: Position,
 }
 
 impl View {
@@ -20,7 +25,13 @@ impl View {
             buffer: Buffer::default(),
             needs_redraw: true,
             size: size,
+            caret_position: Position::default(),
+            screen_offset: Position::default(),
         }
+    }
+
+    pub fn get_caret_position(&self) -> Position {
+        self.caret_position
     }
 
     pub fn resize(&mut self, new_size: Size) {
@@ -37,6 +48,14 @@ impl View {
                 Ok(())
             }
             Err(err) => Err(err),
+        }
+    }
+
+    pub fn evaluate_event(&mut self, command: EditorCommand) -> Result<(), std::io::Error> {
+        match command {
+            EditorCommand::Move(direction) => self.move_point(direction),
+            EditorCommand::Resize(size) => Ok(self.resize(size)),
+            _ => panic!("Unexpected editor command"),
         }
     }
 
@@ -69,6 +88,39 @@ impl View {
         Ok(())
     }
 
+    fn move_point(&mut self, direction: Direction) -> Result<(), std::io::Error> {
+        let Position { mut x, mut y } = self.caret_position;
+        let Size { height, width } = Terminal::size()?;
+        match direction {
+            Direction::Up => {
+                y = y.saturating_sub(1);
+            }
+            Direction::Down => {
+                y = cmp::min(height.saturating_sub(1), y.saturating_add(1));
+            }
+            Direction::Left => {
+                x = x.saturating_sub(1);
+            }
+            Direction::Right => {
+                x = cmp::min(width.saturating_sub(1), x.saturating_add(1));
+            }
+            Direction::PageUp => {
+                y = 0;
+            }
+            Direction::PageDown => {
+                y = height.saturating_sub(1);
+            }
+            Direction::Home => {
+                x = 0;
+            }
+            Direction::End => {
+                x = width.saturating_sub(1);
+            }
+        }
+        self.caret_position = Position { x, y };
+        Ok(())
+    }
+
     fn build_welcome_message(width: usize) -> String {
         if width == 0 {
             return String::from(" ");
@@ -89,7 +141,7 @@ impl View {
     }
 
     fn render_line(at: usize, line: &str) -> Result<(), std::io::Error> {
-        Terminal::move_caret_to(Position { row: at, col: 0 })?;
+        Terminal::move_caret_to(Position { y: at, x: 0 })?;
         Terminal::clear_line()?;
         Terminal::print(line)?;
         Ok(())
